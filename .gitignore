@@ -1,4 +1,6 @@
 server.exe
-./dist/**/*
-./stored_files
-client/node_modules/**/*
+dist/
+stored_files/
+client/node_modules/
+testFiles
+go.sum
