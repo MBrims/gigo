@@ -1,3 +1,7 @@
+# WIP #
+
+Currently this is just a way to get some experience with React and Golang.
+
 A client side encryption service.
 
 - Database server
