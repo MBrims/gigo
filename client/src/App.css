@@ -1,0 +1,150 @@
+body {
+  margin: 0;
+  color: #fff;
+  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
+  background-image: linear-gradient(to bottom, #020917, #101725);
+}
+
+.content {
+  display: flex;
+  min-height: 100vh;
+  line-height: 1.1;
+  text-align: center;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.content h1 {
+  font-size: 3.6rem;
+  font-weight: 700;
+}
+
+.content p {
+  font-size: 1.2rem;
+  font-weight: 400;
+  opacity: 0.5;
+}
+
+.drop-zone {
+  width: 300px;
+  height: 200px;
+  border: 2px dashed #007bff;
+  border-radius: 4px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  color: #007bff;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.centered-div {
+  display: flex;
+  align-self: center;
+  align-items: center;
+  text-align: center;
+}
+
+.upload-button {
+  align-self: center;
+  width: fit-content;
+  margin-top: 10px;
+}
+
+/* Everything below was stolen... */
+.funny-lil-checkbox .check {
+  --size: 40px;
+
+  position: relative;
+  background: linear-gradient(90deg, #f19af3, #f099b5);
+  line-height: 0;
+  perspective: 400px;
+  font-size: var(--size);
+}
+
+.funny-lil-checkbox .check input[type="checkbox"],
+.funny-lil-checkbox .check label,
+.funny-lil-checkbox .check label::before,
+.funny-lil-checkbox .check label::after,
+.funny-lil-checkbox .check {
+  appearance: none;
+  display: inline-block;
+  border-radius: var(--size);
+  border: 0;
+  transition: .35s ease-in-out;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+.funny-lil-checkbox .check label {
+  width: calc(2.2 * var(--size));
+  height: var(--size);
+  background: #d7d7d7;
+  overflow: hidden;
+}
+
+.funny-lil-checkbox .check input[type="checkbox"] {
+  position: absolute;
+  z-index: 1;
+  width: calc(.8 * var(--size));
+  height: calc(.8 * var(--size));
+  top: calc(.1 * var(--size));
+  left: calc(.1 * var(--size));
+  background: linear-gradient(45deg, #dedede, #ffffff);
+  box-shadow: 0 6px 7px rgba(0, 0, 0, 0.3);
+  outline: none;
+  margin: 0;
+}
+
+.funny-lil-checkbox .check input[type="checkbox"]:checked {
+  left: calc(1.3 * var(--size));
+}
+
+.funny-lil-checkbox .check input[type="checkbox"]:checked+label {
+  background: transparent;
+}
+
+.funny-lil-checkbox .check label::before,
+.funny-lil-checkbox .check label::after {
+  content: "· ·";
+  position: absolute;
+  overflow: hidden;
+  left: calc(.15 * var(--size));
+  top: calc(.5 * var(--size));
+  height: var(--size);
+  letter-spacing: calc(-0.04 * var(--size));
+  color: #9b9b9b;
+  font-family: "Times New Roman", serif;
+  z-index: 2;
+  font-size: calc(.6 * var(--size));
+  border-radius: 0;
+  transform-origin: 0 0 calc(-0.5 * var(--size));
+  backface-visibility: hidden;
+}
+
+.funny-lil-checkbox .check label::after {
+  content: "●";
+  top: calc(.65 * var(--size));
+  left: calc(.2 * var(--size));
+  height: calc(.1 * var(--size));
+  width: calc(.35 * var(--size));
+  font-size: calc(.2 * var(--size));
+  transform-origin: 0 0 calc(-0.4 * var(--size));
+}
+
+.funny-lil-checkbox .check input[type="checkbox"]:checked+label::before,
+.funny-lil-checkbox .check input[type="checkbox"]:checked+label::after {
+  left: calc(1.55 * var(--size));
+  top: calc(.4 * var(--size));
+  line-height: calc(.1 * var(--size));
+  transform: rotateY(360deg);
+}
+
+.funny-lil-checkbox .check input[type="checkbox"]:checked+label::after {
+  height: calc(.16 * var(--size));
+  top: calc(.55 * var(--size));
+  left: calc(1.6 * var(--size));
+  font-size: calc(.6 * var(--size));
+  line-height: 0;
+}
