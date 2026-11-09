@@ -2,5 +2,5 @@ server.exe
 dist/
 stored_files/
 client/node_modules/
-testFiles
+tests/
 go.sum
