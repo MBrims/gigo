@@ -1,5 +1,5 @@
 module server.go
 
-go 1.24.4
+go 1.27.3
 
-require github.com/lib/pq v1.10.9
+require github.com/lib/pq v1.12.3
