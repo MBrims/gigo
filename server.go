@@ -43,8 +43,11 @@ var DatabaseInfo = struct {
 	filePath: "./stored_files/",
 }
 
-var validPath = regexp.MustCompile(`^\/file\?file=[.a-zA-Z0-9]*$`)
-var validDownloadRequest = regexp.MustCompile(`^\/request\?file=[.a-zA-Z0-9]*$`)
+var validPath = regexp.MustCompile(`^\/file\?file=[.a-zA-Z0-9]+$`)
+
+var validFileRequest = regexp.MustCompile(`^\/file\?file=[.a-zA-Z0-9]+$`)
+var validFileInfoRequest = regexp.MustCompile(`^\/fileInfo\?file=[.a-zA-Z0-9]+$`)
+
 var validStatRequest = regexp.MustCompile(`^\/statistics$`)
 
 // Info about the sql table.
@@ -117,39 +120,107 @@ func handleStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Add("Content-Type", "application/json")
 	w.Write(bytes)
 }
 
-func handleFile(w http.ResponseWriter, r *http.Request) {
-	// Check to see there's a file and a query.
-	if validPath.MatchString(r.URL.RequestURI()) {
-		// Do the magic in here I guess, for now we just want to serve the test files...
-		query := r.URL.Query().Get("file")
+var noFileFoundError = errors.New("No file found.")
 
-		// this is adding a header for the suggestion of a filename.
-		w.Header().Add("Content-Disposition", "attachment; filename="+query)
-		http.ServeFile(w, r, "./testFiles/"+query)
-		return
-	}
-
-	http.Error(w, "No file found.", http.StatusBadRequest)
+// Really good at naming.
+// This is just for storing any file fields I feel are necessary/useful to get back from the DB.
+type fileInfoStruct struct {
+	fileId   string
+	fileName string
+	filePath string
+	fileSize int64
 }
 
-func handleDownload(w http.ResponseWriter, r *http.Request) {
+// Specifically used for exporting JSON out of the server.
+type fileInfoExportStruct struct {
+	FileName string
+	FileSize int64
+}
+
+// This is getting called twice, once for the info and once to download... Probably not the best idea
+// Alternatives could include caching it (somehow, dunno if the DB itself can do that) or just using a better mechanism.
+func getFileInfoFromDB(fileId string) (fileInfoStruct, error) {
+	// We're only expecting one row, if there were more... oh well.
+	// It also apparently handles the string stuff by itself, don't need quotes, probably should've guessed.
+	const getFileQueryFmt = "SELECT %s, %s FROM %s WHERE %s=$1" 
+	getFileQuery := fmt.Sprintf(getFileQueryFmt, tableInfo.fileName, tableInfo.filePath, tableInfo.tableName, tableInfo.id)
+
+	fileInfo := fileInfoStruct{
+		fileId: fileId,
+	}
+
+	scanErr := DatabaseInfo.db.QueryRow(getFileQuery, fileId).Scan(&fileInfo.fileName, &fileInfo.filePath)
+
+	if errors.Is(scanErr, sql.ErrNoRows) {
+		return fileInfo, noFileFoundError
+	}
+
+	// We'll attempt to grab the file size as well.
+	info, err := os.Lstat(fileInfo.filePath)
+	if err != nil {
+		log.Println("Failed to get the size of ", fileInfo.filePath, ":", err.Error())
+	} else {
+		fileInfo.fileSize = info.Size()
+	}
+
+	return fileInfo, nil
+}
+
+// Returning the stored file itself.
+func handleGetFile(w http.ResponseWriter, r *http.Request) {
 	// Check to see there's a file and a query.
-	if validDownloadRequest.MatchString(r.RequestURI) {
+	if validFileRequest.MatchString(r.RequestURI) {
 		// Do the magic in here I guess, for now we just want to serve the test files...
 		query := r.URL.Query().Get("file")
-		// this is adding a header for the suggestion of a filename.
+		fileInfo, err := getFileInfoFromDB(query)
 
-		w.Header().Add("Content-Disposition", "attachment; filename="+query)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
-		getfile := filepath.Join(DatabaseInfo.filePath, query)
-		http.ServeFile(w, r, getfile) // This handles ranging already, yippee!
+		// Add our stored file name as the suggestion and then serve the file.
+		w.Header().Add("Content-Type", "application/octet-stream")
+		w.Header().Add("Content-Disposition", "attachment; filename="+fileInfo.fileName)
+		http.ServeFile(w, r, fileInfo.filePath)
 		return
 	}
 
-	http.Error(w, "No file found.", http.StatusBadRequest)
+	http.Error(w, "Invalid request.", http.StatusBadRequest)
+}
+
+// Getting the file info stored in the database.
+func handleGetFileInfo(w http.ResponseWriter, r *http.Request) {
+	if validFileInfoRequest.MatchString(r.RequestURI) {
+		query := r.URL.Query().Get("file")
+		fileInfo, err := getFileInfoFromDB(query)
+		
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// Marshal the desired info and then write it out.
+	  	bytes, err := json.Marshal(fileInfoExportStruct {
+			FileName: fileInfo.fileName,
+			FileSize: fileInfo.fileSize,
+		})
+
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Add("Content-Type", "application/json")
+		w.Write(bytes)
+		return
+	}
+
+	http.Error(w, "Invalid request.", http.StatusBadRequest)
 }
 
 func handleUpload(w http.ResponseWriter, r *http.Request) {
@@ -207,8 +278,11 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// If we have a file to write to, store it in the DB.
-	const insert = `INSERT INTO stored_files (Id, file_name, file_path) VALUES ($1, $2, $3)`
-	_, err = DatabaseInfo.db.Exec(insert, id, filename, filePath)
+	//const insertQuery = `INSERT INTO stored_files (Id, file_name, file_path) VALUES ($1, $2, $3)`
+
+	const insertQueryFmt = "INSERT INTO %[1]s (Id, file_name, file_path) VALUES ($1, $2, $3)"
+	insertQuery := fmt.Sprintf(insertQueryFmt, tableInfo.tableName)
+	_, err = DatabaseInfo.db.Exec(insertQuery, id, filename, filePath)
 
 	if err != nil {
 		file.Close()
@@ -287,10 +361,13 @@ func handleServeIndex(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "dist/index.html")
 }
 
+// Setting up HTTP REST endpoints.
 func InitHandles() {
-	http.HandleFunc("GET /file", handleFile)
 
-	http.HandleFunc("GET /request", handleDownload)
+	// http.HandleFunc("GET /request", handleDownload)
+	http.HandleFunc("GET /file", handleGetFile)
+	http.HandleFunc("GET /fileInfo", handleGetFileInfo)
+
 	http.HandleFunc("GET /statistics", handleStats)
 	http.HandleFunc("POST /upload", handleUpload)
 
@@ -362,7 +439,7 @@ func main() {
 				printStats()
 			default:
 				if len(command) > 0 { // Sanity check for instances of: Random new lines, ^C, etc.
-					fmt.Printf("Unrecognised command: %v", command)
+					fmt.Printf("Unrecognised command: %v\n", command)
 				}
 			}
 		}
