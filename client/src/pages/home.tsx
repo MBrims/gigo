@@ -1,3 +1,8 @@
+/**
+ * Default landing page.
+ * Should handle uploading a file and go from there, as well as links to other sections (downloads?).
+ */
+
 import React, { useRef, useState } from 'react';
 import { FormatBytes } from '../helpers';
 import { Link } from 'react-router';
@@ -59,7 +64,7 @@ function StoreOnServer(props: { StoreOnServer: boolean, SetStoreOnServer: React.
     const inputStoreOnServer = useRef<HTMLInputElement | null>(null);
 
     const onChange = () => {
-        props.SetStoreOnServer(inputStoreOnServer?.current?.checked ?? true)
+        props.SetStoreOnServer(inputStoreOnServer?.current?.checked ?? true);
     }
 
     return (
@@ -116,23 +121,43 @@ function TEMP_NAME(properties: { StoreOnServer: boolean, StoredFile: InputFile }
 
 function ToDownloads() {
     return (
-        <Link to="/download">To Downloads </Link>
+        <Link to="/download">To Downloads</Link>
     );
+}
+
+function ToStats() {
+    return (
+        <Link to="/stats">To Statistics</Link>
+    )
 }
 
 const Home = () => {
     const [storedFile, setStoredFiled] = useState<InputFile>(null);
     const [storeOnServer, setStoreOnServer] = useState(true);
 
+    // Why do we have store on server? What was I thinking?
     return (
         <div className="content">
             <h1>Add File</h1>
             <FileInput StoredFile={storedFile} SetStoredFile={setStoredFiled} />
             <StoreOnServer StoreOnServer={storeOnServer} SetStoreOnServer={setStoreOnServer} />
             <TEMP_NAME StoreOnServer={storeOnServer} StoredFile={storedFile} />
-            <ToDownloads />
+            <div>
+                <ToDownloads />
+                <ToStats />
+            </div>
         </div>
     );
 };
 
 export default Home;
+
+/*
+TODO: 
+    Additional page once something has been submitted
+        - This is where the resulting key to decrypt should go.
+    Setup the encryption (somehow)
+        - Possible speedup by splitting up the file (is this something we can do?)
+    Addition of a way to enter a key for hash modifying (for the encryption)
+    Do we really need an SQL server? I mean, sure it's neet, but like... kinda overkill, no?
+*/
