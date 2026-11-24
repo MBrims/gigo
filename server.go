@@ -27,6 +27,14 @@ import (
 	_ "github.com/lib/pq"
 )
 
+// Some regex for our various endpoints
+var validPath = regexp.MustCompile(`^\/file\?file=[.a-zA-Z0-9]+$`)
+var validFileRequest = regexp.MustCompile(`^\/file\?file=[.a-zA-Z0-9]+$`)
+var validFileInfoRequest = regexp.MustCompile(`^\/fileInfo\?file=[.a-zA-Z0-9]+$`)
+var validCheckFileRequest = regexp.MustCompile(`^\/checkFile$`)
+var validUploadRequest = regexp.MustCompile(`^\/upload$`)
+var validStatRequest = regexp.MustCompile(`^\/statistics$`)
+
 var DatabaseInfo = struct {
 	host     string
 	port     int
@@ -34,23 +42,13 @@ var DatabaseInfo = struct {
 	password string
 	dbname   string
 	db       *sql.DB
-	filePath string
 }{
 	host:     "localhost",
 	port:     5432,
 	user:     "postgres",
 	password: "1234",
 	dbname:   "gigo",
-	filePath: "./stored_files/",
 }
-
-var validPath = regexp.MustCompile(`^\/file\?file=[.a-zA-Z0-9]+$`)
-
-var validFileRequest = regexp.MustCompile(`^\/file\?file=[.a-zA-Z0-9]+$`)
-var validFileInfoRequest = regexp.MustCompile(`^\/fileInfo\?file=[.a-zA-Z0-9]+$`)
-var validCheckFileRequest = regexp.MustCompile(`^\/checkFile$`)
-var validUploadRequest = regexp.MustCompile(`^\/upload$`)
-var validStatRequest = regexp.MustCompile(`^\/statistics$`)
 
 // Info about the sql table.
 var tableInfo = struct {
@@ -72,12 +70,14 @@ var serverInfo = struct {
 	port       int           // The port to use.
 	limitSpace bool          // If true, the server will return an error if a file causes totalAlloc to go over totalSpace.
 	totalSpace uint          // Should this be something else?
+	filePath   string        // The file path to store files on.
 	totalAlloc atomic.Uint64 // Total allocated.
 }{
 	ip:         "localhost",
 	port:       8080,
 	limitSpace: true,
 	totalSpace: 10_485_760, // ~10mb
+	filePath:   "./stored_files/",
 }
 
 func PanicOnError(err error) {
@@ -300,7 +300,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	initFilePath := func() (uint64, string, string) {
 		__id := rand.Uint64()
 		__s_id := fmt.Sprintf("%d", __id)
-		__fp := filepath.Join(DatabaseInfo.filePath, __s_id)
+		__fp := filepath.Join(serverInfo.filePath, __s_id)
 		return __id, __s_id, __fp
 	}
 
@@ -394,7 +394,7 @@ func iterateStoredFilePaths(perm func(string)) {
 
 // Helper to create the table we're using (if it doesn't exist).
 func CreateTable(db *sql.DB) {
-// Check to see if we've created a table.
+	// Check to see if we've created a table.
 	tableq, dbErr := db.Query("SELECT EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = $1)", tableInfo.tableName)
 	PanicOnError(dbErr)
 
@@ -479,18 +479,73 @@ func InitHandles() {
 	http.HandleFunc("GET /", handleServeIndex)
 }
 
+// Read in a JSON file and fill out our options.
+func ReadStoredOptions() error {
+	opsfile, err := os.Open("./serverOptions.json")
+	if err != nil {
+		return err
+	}
+
+	var result any
+	err = json.UnmarshalRead(opsfile, &result)
+	if err != nil {
+		return err
+	}
+
+	// TODO: Give some proper error handling to this, currently we just ignore errors.
+	// Also might want to make a specific unmarshaller, but for now this works.
+	mapping := result.(map[string]any)
+	for key, val := range mapping {
+		switch strings.ToLower(key) {
+		case "ip":
+			serverInfo.ip = val.(string)
+		case "port":
+			serverInfo.port = int(val.(float64))
+		case "limitspace":
+			serverInfo.limitSpace = val.(bool)
+		case "totalspace":
+			serverInfo.totalSpace = uint(val.(float64))
+		case "filepath":
+			serverInfo.filePath = val.(string)
+		case "database":
+			dbMap := val.(map[string]any)
+			for dbk, dbv := range dbMap {
+				switch strings.ToLower(dbk) {
+				case "host:":
+					DatabaseInfo.host = dbv.(string)
+				case "port:":
+					DatabaseInfo.port = int(dbv.(float64))
+				case "user:":
+					DatabaseInfo.user = dbv.(string)
+				case "password:":
+					DatabaseInfo.password = dbv.(string)
+				case "dbname:":
+					DatabaseInfo.dbname = dbv.(string)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
 func main() {
+	err := ReadStoredOptions()
+	if err != nil {
+		log.Println("Error reading options: ", err.Error())
+	}
+
 	handle := fmt.Sprintf("%s:%d", serverInfo.ip, serverInfo.port)
 
 	// A shitty work around to ensure the file path is correct.
-	DatabaseInfo.filePath, _ = filepath.Abs(DatabaseInfo.filePath)
+	serverInfo.filePath, _ = filepath.Abs(serverInfo.filePath)
 
 	// Initialise the DB
 	InitDB()
 	defer DatabaseInfo.db.Close()
 
 	// Create our storage path if it doesn't exist.
-	err := os.MkdirAll(DatabaseInfo.filePath, os.ModePerm)
+	err = os.MkdirAll(serverInfo.filePath, os.ModePerm)
 	PanicOnError(err)
 
 	// Initialise default HTTP handles.
@@ -601,7 +656,7 @@ func printStored() {
 
 // Literally just delete everything.
 func dropTable() {
-	iterateStoredFilePaths(func (s string) {
+	iterateStoredFilePaths(func(s string) {
 		err := os.Remove(s)
 		if err != nil {
 			fmt.Println("Error: ", err.Error())

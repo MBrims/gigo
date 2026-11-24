@@ -1,0 +1,14 @@
+{
+    "ip": "localhost",
+    "port": 8080,
+    "limitSpace": false,
+    "totalSpace": 10485760,
+    "filePath": "./stored_files/",
+    "database": {
+        "host:": "localhost",
+        "port:": 5432,
+        "user:": "postgres",
+        "password:": "1234",
+        "dbname:": "gigo" 
+    }
+}
