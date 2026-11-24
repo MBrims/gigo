@@ -120,8 +120,6 @@ const Download = () => {
 
             fileInfoValues.push(<li>{key} : {val}</li>)    
         }
-
-        // fileInfoValues = Object.keys(fileInfo).map(key => (<li>{key} : {fileInfo[key].toString()}</li>))
     }
 
     return (

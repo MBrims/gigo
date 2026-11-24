@@ -78,12 +78,6 @@ function StoreOnServer(props: { StoreOnServer: boolean, SetStoreOnServer: React.
     )
 }
 
-// async function Encrypt(stream: ReadableStream<Uint8Array<ArrayBuffer>>) {
-//     const iv = window.crypto.getRandomValues(new Uint8Array(16));
-//     const key = await window.crypto.subtle.generateKey({ name: "AES-CBC", length: 256 }, true, ["encrypt", "decrypt"])
-//     window.crypto.subtle.encrypt({ name: "AES-CBC", iv }, key, stream.);
-// }
-
 async function TestEncryption(file: InputFile) {
     if (!file || file == null) {
         return;

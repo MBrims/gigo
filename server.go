@@ -291,29 +291,6 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// We're expecting 2 substrings
-	// split := strings.SplitAfterN(r.Header.Get("Content-Disposition"), "=", 2)
-	// filename := ""
-	// if len(split) > 1 {
-	// 	filename = split[1]
-	// } else {
-	// 	http.Error(w, "No filename given.", http.StatusBadRequest)
-	// 	return
-	// }
-
-	// // Sanity check; might want to do more here later.
-	// if r.ContentLength <= 0 {
-	// 	http.Error(w, "File has no size.", http.StatusBadRequest)
-	// 	return
-	// }
-
-	// // TODO: Fix this mess.
-	// if uint(uint64(r.ContentLength)+serverInfo.totalAlloc.Load()) > serverInfo.totalSpace {
-	// 	//http.Error(w, "Not enough space on server.", http.StatusRequestEntityTooLarge)
-	// 	http.Error(w, "Not enough space on server.", http.StatusBadRequest)
-	// 	return
-	// }
-
 	filename, valid := checkFileValidity(w, r)
 	if !valid {
 		log.Println("Invalid file recieved.")

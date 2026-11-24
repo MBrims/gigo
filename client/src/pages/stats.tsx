@@ -58,8 +58,6 @@ const Stats = () => {
 
             statValues.push(<li>{key} : {value}</li>)
         }
-
-        // statValues = Object.keys(loadedStats).map(key => ())
     }
 
     return (
