@@ -76,7 +76,7 @@ var serverInfo = struct {
 }{
 	ip:         "localhost",
 	port:       8080,
-	limitSpace: false,
+	limitSpace: true,
 	totalSpace: 10_485_760, // ~10mb
 }
 
@@ -332,8 +332,8 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	// If we have a file to write to, store it in the DB.
 	//const insertQuery = `INSERT INTO stored_files (Id, file_name, file_path) VALUES ($1, $2, $3)`
 
-	const insertQueryFmt = "INSERT INTO %[1]s (Id, file_name, file_path) VALUES ($1, $2, $3)"
-	insertQuery := fmt.Sprintf(insertQueryFmt, tableInfo.tableName)
+	const insertQueryFmt = "INSERT INTO %[1]s (%s, %s, %s) VALUES ($1, $2, $3)"
+	insertQuery := fmt.Sprintf(insertQueryFmt, tableInfo.tableName, tableInfo.id, tableInfo.fileName, tableInfo.filePath)
 	_, err = DatabaseInfo.db.Exec(insertQuery, id, filename, filePath)
 
 	if err != nil {
@@ -368,20 +368,33 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(s_id))
 }
 
-// Panics on error
-func InitDB() {
-	// Connect to DB
-	psqlconn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable", DatabaseInfo.host, DatabaseInfo.port, DatabaseInfo.user, DatabaseInfo.password, DatabaseInfo.dbname)
+// Grab the filepath rows from the db and call perm on each (where successful)
+func iterateStoredFilePaths(perm func(string)) {
+	// Here we want to check what files we have stored in order to keep track of the total space we have allotted.
+	const getFilePathsQueryFmt = "SELECT %s FROM %s"
+	filePathQuery := fmt.Sprintf(getFilePathsQueryFmt, tableInfo.filePath, tableInfo.tableName)
+	filePathRows, dbErr := DatabaseInfo.db.Query(filePathQuery)
 
-	db, dbErr := sql.Open("postgres", psqlconn)
-	PanicOnError(dbErr)
+	if dbErr != nil {
+		log.Println("Error occurred in querying filenames: ", dbErr.Error())
+		return
+	}
 
-	// Check the connection
-	dbErr = db.Ping()
-	PanicOnError(dbErr)
+	var filePathStr string
+	for filePathRows.Next() {
+		dbErr := filePathRows.Scan(&filePathStr)
+		if dbErr != nil {
+			log.Println("Error whilst scanning file paths: ", dbErr.Error())
+			continue
+		}
 
-	// Checking + Creating table. This could be moved to outside setup, but it's pretty quick (I think), so eh.
-	// Check to see if we've created a table.
+		perm(filePathStr)
+	}
+}
+
+// Helper to create the table we're using (if it doesn't exist).
+func CreateTable(db *sql.DB) {
+// Check to see if we've created a table.
 	tableq, dbErr := db.Query("SELECT EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = $1)", tableInfo.tableName)
 	PanicOnError(dbErr)
 
@@ -404,9 +417,38 @@ func InitDB() {
 		PanicOnError(dbErr)
 		fmt.Println("Created new table stored_files")
 	}
+}
+
+// Panics on error
+func InitDB() {
+	// Connect to DB
+	psqlconn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable", DatabaseInfo.host, DatabaseInfo.port, DatabaseInfo.user, DatabaseInfo.password, DatabaseInfo.dbname)
+
+	db, dbErr := sql.Open("postgres", psqlconn)
+	PanicOnError(dbErr)
+
+	// Check the connection
+	dbErr = db.Ping()
+	PanicOnError(dbErr)
+
+	// Checking + Creating table. This could be moved to outside setup, but it's pretty quick (I think), so eh.
+	CreateTable(db)
 
 	// Time to keep track of it.
 	DatabaseInfo.db = db
+
+	iterateStoredFilePaths(func(s string) {
+		info, err := os.Stat(s)
+		if err != nil {
+			log.Println("Error: ", err.Error())
+			return
+		}
+
+		// Currently we only care about the size.
+		serverInfo.totalAlloc.Add(uint64(info.Size()))
+	})
+
+	log.Println("Total allocated: ", serverInfo.totalAlloc.Load())
 }
 
 func handleServeIndex(w http.ResponseWriter, r *http.Request) {
@@ -492,6 +534,10 @@ func main() {
 				goto shutdown
 			case "stats":
 				printStats()
+			case "stored":
+				printStored()
+			case "complete erase":
+				dropTable()
 			default:
 				if len(command) > 0 { // Sanity check for instances of: Random new lines, ^C, etc.
 					fmt.Printf("Unrecognised command: %v\n", command)
@@ -525,4 +571,50 @@ func printStats() {
 	values = append(values, stats.Allotted)
 
 	log.Printf(formatStr, values...)
+}
+
+func printStored() {
+	const selectStoredQueryFmt = "SELECT * FROM %s"
+	selectStoredQuery := fmt.Sprintf(selectStoredQueryFmt, tableInfo.tableName)
+	rows, err := DatabaseInfo.db.Query(selectStoredQuery)
+
+	if err != nil {
+		fmt.Println("Query failed.")
+		return
+	}
+
+	var id string
+	var fileName string
+	var filePath string
+
+	fmt.Println("Id; Filename; Filepath;")
+	for rows.Next() {
+		err := rows.Scan(&id, &fileName, &filePath)
+		if err != nil {
+			fmt.Println("Error getting row.")
+			continue
+		}
+
+		fmt.Printf("%s; %s; %s;\n", id, fileName, filePath)
+	}
+}
+
+// Literally just delete everything.
+func dropTable() {
+	iterateStoredFilePaths(func (s string) {
+		err := os.Remove(s)
+		if err != nil {
+			fmt.Println("Error: ", err.Error())
+			return
+		}
+	})
+
+	const dropTableFmt = "DROP TABLE %s"
+	_, err := DatabaseInfo.db.Exec(fmt.Sprintf(dropTableFmt, tableInfo.tableName))
+	if err != nil {
+		fmt.Println("Error: ", err.Error())
+		return
+	}
+
+	CreateTable(DatabaseInfo.db)
 }

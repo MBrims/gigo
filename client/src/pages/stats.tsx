@@ -9,7 +9,6 @@ function statusOk(status: number) {
     return (status >= 200 && status < 300)
 }
 
-
 type statsResponseT = { status: number, resp: unknown }
 
 // Returns a statsResponseT, if .status is OK, then resp will be an object representing the JSON.
