@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -47,7 +48,8 @@ var validPath = regexp.MustCompile(`^\/file\?file=[.a-zA-Z0-9]+$`)
 
 var validFileRequest = regexp.MustCompile(`^\/file\?file=[.a-zA-Z0-9]+$`)
 var validFileInfoRequest = regexp.MustCompile(`^\/fileInfo\?file=[.a-zA-Z0-9]+$`)
-
+var validCheckFileRequest = regexp.MustCompile(`^\/checkFile$`)
+var validUploadRequest = regexp.MustCompile(`^\/upload$`)
 var validStatRequest = regexp.MustCompile(`^\/statistics$`)
 
 // Info about the sql table.
@@ -74,7 +76,7 @@ var serverInfo = struct {
 }{
 	ip:         "localhost",
 	port:       8080,
-	limitSpace: true,
+	limitSpace: false,
 	totalSpace: 10_485_760, // ~10mb
 }
 
@@ -146,7 +148,7 @@ type fileInfoExportStruct struct {
 func getFileInfoFromDB(fileId string) (fileInfoStruct, error) {
 	// We're only expecting one row, if there were more... oh well.
 	// It also apparently handles the string stuff by itself, don't need quotes, probably should've guessed.
-	const getFileQueryFmt = "SELECT %s, %s FROM %s WHERE %s=$1" 
+	const getFileQueryFmt = "SELECT %s, %s FROM %s WHERE %s=$1"
 	getFileQuery := fmt.Sprintf(getFileQueryFmt, tableInfo.fileName, tableInfo.filePath, tableInfo.tableName, tableInfo.id)
 
 	fileInfo := fileInfoStruct{
@@ -198,14 +200,14 @@ func handleGetFileInfo(w http.ResponseWriter, r *http.Request) {
 	if validFileInfoRequest.MatchString(r.RequestURI) {
 		query := r.URL.Query().Get("file")
 		fileInfo, err := getFileInfoFromDB(query)
-		
+
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
 		// Marshal the desired info and then write it out.
-	  	bytes, err := json.Marshal(fileInfoExportStruct {
+		bytes, err := json.Marshal(fileInfoExportStruct{
 			FileName: fileInfo.fileName,
 			FileSize: fileInfo.fileSize,
 		})
@@ -223,27 +225,99 @@ func handleGetFileInfo(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "Invalid request.", http.StatusBadRequest)
 }
 
-func handleUpload(w http.ResponseWriter, r *http.Request) {
-	// We're expecting 2 substrings
+// Check if a file is valid based on request headers.
+// Writes an error to w on failure.
+// Returns the found filename as well as a bool indicating success.
+func checkFileValidity(w http.ResponseWriter, r *http.Request) (string, bool) {
 	split := strings.SplitAfterN(r.Header.Get("Content-Disposition"), "=", 2)
 	filename := ""
+
 	if len(split) > 1 {
 		filename = split[1]
 	} else {
 		http.Error(w, "No filename given.", http.StatusBadRequest)
-		return
+		return filename, false
+	}
+
+	contentLength := r.ContentLength
+	antLength := r.Header.Get("Anticipated-Length")
+	if len(antLength) != 0 {
+		var err error
+		contentLength, err = strconv.ParseInt(antLength, 10, 64)
+		if err != nil {
+			log.Println("Failed to parse \"Anticipated-Length\" header: ", antLength)
+			contentLength = r.ContentLength // Just set it back to how it was.
+		}
 	}
 
 	// Sanity check; might want to do more here later.
-	if r.ContentLength <= 0 {
-		http.Error(w, "File has no size.", http.StatusBadRequest)
-		return
+	if contentLength <= 0 {
+		http.Error(w, "File has no size or is unkown.", http.StatusBadRequest)
+		return filename, false
 	}
 
 	// TODO: Fix this mess.
-	if uint(uint64(r.ContentLength)+serverInfo.totalAlloc.Load()) > serverInfo.totalSpace {
-		http.Error(w, "Not enough space on server.", http.StatusRequestEntityTooLarge)
+	if serverInfo.limitSpace && uint(uint64(contentLength)+serverInfo.totalAlloc.Load()) > serverInfo.totalSpace {
+		//http.Error(w, "Not enough space on server.", http.StatusRequestEntityTooLarge)
+		http.Error(w, "Not enough space on server.", http.StatusBadRequest)
+		return filename, false
+	}
+
+	return filename, true
+}
+
+func handleCheckFile(w http.ResponseWriter, r *http.Request) {
+	if validCheckFileRequest.MatchString(r.RequestURI) {
+		_, valid := checkFileValidity(w, r)
+		if valid {
+			w.WriteHeader(http.StatusOK) // We'll take an OK as a sign the file is good to go.
+		}
+
 		return
+	}
+
+	http.Error(w, "Invalid request.", http.StatusBadRequest)
+}
+
+// TODO: Perhaps make use of a MaxByteReader to ensure we don't get inundated with trash.
+// For some reason, not consuming the body results in an ERR_NET_RST, which means we don't get anything back client side.
+// Some ways around it might be:
+// - Checking availability first (send a get with our file info, and then do it if successful)
+// - Possibly chunking? probably not though...
+// Multipart forms... might be good for multiple files, might not.
+func handleUpload(w http.ResponseWriter, r *http.Request) {
+	if !validUploadRequest.MatchString(r.RequestURI) {
+		http.Error(w, "Invalid request.", http.StatusBadRequest)
+		return
+	}
+
+	// We're expecting 2 substrings
+	// split := strings.SplitAfterN(r.Header.Get("Content-Disposition"), "=", 2)
+	// filename := ""
+	// if len(split) > 1 {
+	// 	filename = split[1]
+	// } else {
+	// 	http.Error(w, "No filename given.", http.StatusBadRequest)
+	// 	return
+	// }
+
+	// // Sanity check; might want to do more here later.
+	// if r.ContentLength <= 0 {
+	// 	http.Error(w, "File has no size.", http.StatusBadRequest)
+	// 	return
+	// }
+
+	// // TODO: Fix this mess.
+	// if uint(uint64(r.ContentLength)+serverInfo.totalAlloc.Load()) > serverInfo.totalSpace {
+	// 	//http.Error(w, "Not enough space on server.", http.StatusRequestEntityTooLarge)
+	// 	http.Error(w, "Not enough space on server.", http.StatusBadRequest)
+	// 	return
+	// }
+
+	filename, valid := checkFileValidity(w, r)
+	if !valid {
+		log.Println("Invalid file recieved.")
+		return // Just quit out early.
 	}
 
 	initFilePath := func() (uint64, string, string) {
@@ -273,6 +347,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
+		log.Println("Error in file creation: ", err.Error())
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -369,6 +444,9 @@ func InitHandles() {
 	http.HandleFunc("GET /fileInfo", handleGetFileInfo)
 
 	http.HandleFunc("GET /statistics", handleStats)
+
+	// Using GET so we can pass back error messages.
+	http.HandleFunc("GET /checkFile", handleCheckFile)
 	http.HandleFunc("POST /upload", handleUpload)
 
 	// Probably want the serving folder to be more specific?

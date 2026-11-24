@@ -78,6 +78,54 @@ function StoreOnServer(props: { StoreOnServer: boolean, SetStoreOnServer: React.
     )
 }
 
+// async function Encrypt(stream: ReadableStream<Uint8Array<ArrayBuffer>>) {
+//     const iv = window.crypto.getRandomValues(new Uint8Array(16));
+//     const key = await window.crypto.subtle.generateKey({ name: "AES-CBC", length: 256 }, true, ["encrypt", "decrypt"])
+//     window.crypto.subtle.encrypt({ name: "AES-CBC", iv }, key, stream.);
+// }
+
+async function TestEncryption(file: InputFile) {
+    if (!file || file == null) {
+        return;
+    }
+
+    const fileArray = await file.arrayBuffer();
+
+    // Testing out encryption.
+    const iv = window.crypto.getRandomValues(new Uint8Array(16));
+    const key = await window.crypto.subtle.generateKey({ name: "AES-CBC", length: 256 }, true, ["encrypt", "decrypt"])
+    console.log(key);
+
+    const start = Date.now();
+    const resultFileKey1 = await window.crypto.subtle.encrypt({ name: "AES-CBC", iv }, key, fileArray);
+    const taken = Date.now() - start;
+    console.log("Time taken: ", taken);
+
+    // Testing out to/from b64 key.
+    const rawKey = await window.crypto.subtle.exportKey("raw", key)
+    // const keyDecode = new TextDecoder().decode(rawKey);
+    // console.log(keyDecode)
+
+    const rawKeyb64 = new Uint8Array(rawKey).toBase64()
+    // const rawKeyb64 = btoa(keyDecode); // TODO: this needs to be the proper conversion
+    console.log("Generated key: ", rawKeyb64)
+
+    // const retrieveRaw = new TextEncoder().encode(atob(rawKeyb64))
+    const retrieveRaw = Uint8Array.fromBase64(rawKeyb64)
+    const retKey = await window.crypto.subtle.importKey("raw", retrieveRaw, { name: "AES-CBC", length: 256 }, true, ["encrypt", "decrypt"]);
+    console.log(retKey);
+    console.log("Keys the same: ", key === retKey);
+    console.log("ReGenerated Key: ", new Uint8Array(await window.crypto.subtle.exportKey("raw", retKey)).toBase64());
+
+    // Decrypt the file and check it... I guess.
+    const decodedResult = await window.crypto.subtle.decrypt({ name: "AES-CBC", iv: iv }, retKey, resultFileKey1)
+    console.log("Original Len: ", fileArray.byteLength);
+    console.log("Decoded Len: ", decodedResult.byteLength);
+
+    console.log("Original Bytes: ", new Uint8Array(fileArray))
+    console.log("Decoded Bytes: ", new Uint8Array(decodedResult))
+}
+
 function TEMP_NAME(properties: { StoreOnServer: boolean, StoredFile: InputFile }) {
     // If we aren't uploading or don't have a file, just return.
     if (!properties.StoreOnServer || !properties.StoredFile) {
@@ -86,30 +134,55 @@ function TEMP_NAME(properties: { StoreOnServer: boolean, StoredFile: InputFile }
         );
     }
 
+    properties.StoredFile.stream()
+
+    const triggerError = (response: Response) => {
+        response.text().then(err => {
+            alert(err)
+        });
+    }
+
     const uploadFile = () => {
         if (!properties.StoredFile) {
             return;
         }
 
-        fetch("/upload", {
-            method: "POST",
-            headers: {
-                "content-type": properties.StoredFile?.type,
-                "content-disposition": "attachment; filename=" + properties.StoredFile?.name
-            },
-            body: properties.StoredFile,
-        }).then(async (r) => {
-            if (!r.ok) {
-                alert(await r.text());
+        // TODO: Remove this
+        TestEncryption(properties.StoredFile);
+
+        const uploadHeaders = {
+            "Content-Type": "application/octet-stream",
+            "Content-Disposition": "attachment; filename=" + properties.StoredFile?.name,
+            "Anticipated-Length": properties.StoredFile?.size.toString(),
+        };
+
+        // We initially just send any necessary header info across to make sure we can actually 
+        // send the file, without failure.
+        // This is done to get back actual error messages, as oppose to just ERR_CONNECTION_RESET.
+        fetch("/checkFile", {
+            method: "GET",
+            headers: uploadHeaders,
+            // body: properties.StoredFile
+        }).then(checkResp => {
+            if (checkResp.ok) { // Upload the file
+                fetch("/upload", {
+                    method: "POST",
+                    headers: uploadHeaders,
+                    body: properties.StoredFile,
+                }).then(async (r) => {
+                    if (r.ok) {
+                        const str = new TextDecoder().decode(await r.bytes());
+                        console.log(str);
+
+                        alert(str);
+                    }
+                    else {
+                        triggerError(r);
+                    }
+                });
             }
             else {
-                console.log(r);
-                const str = new TextDecoder().decode(await r.bytes());
-                console.log(str);
-
-                alert(str);
-                //const bytes = await r.bytes();
-                //alert(Number(bytes));
+                triggerError(checkResp);
             }
         })
     };

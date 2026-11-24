@@ -3,14 +3,16 @@
  */
 
 import { useEffect, useState, type JSX } from "react"
+import { FormatBytes } from "../helpers";
 
 function statusOk(status: number) {
     return (status >= 200 && status < 300)
 }
 
-type statsResponseT = { status: number, resp: any }
 
-// Returns an array with the first element being the initial status code.
+type statsResponseT = { status: number, resp: unknown }
+
+// Returns a statsResponseT, if .status is OK, then resp will be an object representing the JSON.
 async function requestStats(): Promise<statsResponseT> {
     const resp = await fetch("/statistics")
     if (resp.ok) {
@@ -32,7 +34,7 @@ const Stats = () => {
     useEffect(() => {
         requestStats().then(r => {
             if (statusOk(r.status)) {
-                setLoadedStats(r.resp);
+                setLoadedStats(r.resp as object);
             }
         });
     }, []);
@@ -40,21 +42,31 @@ const Stats = () => {
     const statValues: JSX.Element[] = []
 
     if (loadedStats) {
-        //@ts-expect-error We're grabbing the keys already.
-        statValues = Object.keys(loadedStats).map(key => (<li>{key} : {loadedStats[key].toString()}</li>))
 
-        // Object.keys(loadedStats).map(key => `${key} : ${loadedStats[key]}`)
+        for (const key of Object.keys(loadedStats)) {
+            const lowerKey = key.toLowerCase();
 
-        // for (const kv in Object.entries(loadedStats)) {
-        //     statValues.push(<li>{kv[0]} : {kv[1]}</li>)
-        // }
+            //@ts-expect-error We're grabbing the keys already.
+            let value = loadedStats[key].toString();
+
+            switch (lowerKey) {
+                case "total":
+                case "allotted":
+                    value = FormatBytes(Number.parseInt(value));
+                    break;
+            }
+
+            statValues.push(<li>{key} : {value}</li>)
+        }
+
+        // statValues = Object.keys(loadedStats).map(key => ())
     }
 
     return (
         <>
-        <h1>Stats</h1>
-        <p>Some statistics about the server. Currently it's just slapping the JSON down as is.</p>
-        <hr/>
+            <h1>Stats</h1>
+            <p>Some statistics about the server. Currently it's just slapping the JSON down as is.</p>
+            <hr />
             <ul>
                 {statValues}
             </ul>

@@ -3,6 +3,7 @@
  */
 
 import React, { useEffect, useState, type JSX } from "react";
+import { FormatBytes } from "../helpers";
 
 // Specifically for downloading the given blob.
 function DownloadFileHelper(name: string, blob: Blob) {
@@ -104,8 +105,23 @@ const Download = () => {
     const fileInfoValues: JSX.Element[] = []
 
     if (fileInfo) {
-        //@ts-expect-error We're grabbing the keys already.
-        fileInfoValues = Object.keys(fileInfo).map(key => (<li>{key} : {fileInfo[key].toString()}</li>))
+        
+        for (const key of Object.keys(fileInfo))
+        {
+            //@ts-expect-error We're grabbing the keys already.
+            let val = fileInfo[key].toString();
+
+            switch(key)
+            {
+                case "FileSize":
+                    val = FormatBytes(Number.parseInt(val));
+                    break;
+            }
+
+            fileInfoValues.push(<li>{key} : {val}</li>)    
+        }
+
+        // fileInfoValues = Object.keys(fileInfo).map(key => (<li>{key} : {fileInfo[key].toString()}</li>))
     }
 
     return (
